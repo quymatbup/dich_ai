@@ -199,20 +199,19 @@ with tab1:
                         if audio_trans: st.audio(audio_trans)
 
 # ==========================================
-# TAB 2: DỊCH ẢNH (GỌI CAMERA GỐC CỦA ĐIỆN THOẠI)
+# TAB 2: DỊCH HÌNH ẢNH
 # ==========================================
 with tab2:
     st.markdown("### 📸 Dịch trực tiếp trên hình ảnh")
-    
-    # Mẹo gọi Camera: Dùng file_uploader nhưng giới hạn định dạng ảnh
     up_file = st.file_uploader("Tải ảnh hoặc Chụp ảnh trực tiếp:", type=['jpg','png','jpeg'], key="up_img")
     
     if up_file:
         img = Image.open(up_file).convert("RGB")
-        st.image(img, caption="Ảnh gốc cần dịch", width=400)
+        # Ảnh gốc hiển thị tràn viền
+        st.image(img, caption="Ảnh gốc cần dịch", use_container_width=True)
         
         if st.button("QUÉT & DỊCH ĐÈ", key="btn_scan"):
-            with st.spinner("AI đang nhận diện chữ và dịch..."):
+            with st.spinner("AI đang xử lý nhận diện và dịch..."):
                 img_np = np.array(img)
                 result = reader.readtext(img_np)
                 draw = ImageDraw.Draw(img)
@@ -227,8 +226,9 @@ with tab2:
                         draw.polygon([p1, p2, p3, p4], fill="white")
                         trans = smart_translate(text, 'auto', 'vi')
                         draw.text(p1, trans, fill="black", font=font)
-                
+                        
                 st.subheader("Kết quả Google Lens:")
+                # Ép ảnh kết quả tràn viền to rõ trên điện thoại
                 st.image(img, use_container_width=True)
 
 # TAB 3: DỊCH PHIM
