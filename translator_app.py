@@ -10,149 +10,303 @@ import tempfile
 import os
 import subprocess
 import hashlib
-import whisper
+import re
 from audio_recorder_streamlit import audio_recorder
-from deep_translator import GoogleTranslator, MyMemoryTranslator
+import translators as ts
 
-# --- CẤU HÌNH TRANG ---
-st.set_page_config(page_title='Siêu App Dịch Thuật AI', layout='wide', page_icon='🌍')
+# --- CẤU HÌNH GIAO DIỆN ---
+st.set_page_config(
+    page_title='Dịch Thuật AI', 
+    layout='wide', 
+    page_icon="logo.ico"
+)
 
-# --- TẢI MÔ HÌNH (CACHE) ---
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['vi', 'en'])
 
-@st.cache_resource
-def load_whisper():
-    return whisper.load_model("base")
-
 reader = load_ocr()
-whisper_model = load_whisper()
 
-# --- TỰ ĐỘNG LẤY DANH SÁCH 130+ NGÔN NGỮ ---
-@st.cache_data
-def get_all_languages():
-    # Lấy danh sách từ Google Translator (đầy đủ nhất thế giới)
-    langs_dict = GoogleTranslator().get_supported_languages(as_dict=True)
-    # Viết hoa chữ cái đầu cho đẹp
-    return {k.title(): v for k, v in langs_dict.items()}
+# --- DANH SÁCH NGÔN NGỮ (HƠN 100 NGÔN NGỮ QUỐC TẾ) ---
+LANGUAGES = {
+    'Vietnamese': 'vi', 'English': 'en', 'Afrikaans': 'af', 'Albanian': 'sq', 'Amharic': 'am',
+    'Arabic': 'ar', 'Armenian': 'hy', 'Azerbaijani': 'az', 'Basque': 'eu', 'Belarusian': 'be',
+    'Bengali': 'bn', 'Bosnian': 'bs', 'Bulgarian': 'bg', 'Catalan': 'ca', 'Cebuano': 'ceb',
+    'Chinese (Simplified)': 'zh-CN', 'Chinese (Traditional)': 'zh-TW', 'Corsican': 'co', 'Croatian': 'hr',
+    'Czech': 'cs', 'Danish': 'da', 'Dutch': 'nl', 'Esperanto': 'eo', 'Estonian': 'et', 'Finnish': 'fi',
+    'French': 'fr', 'Frisian': 'fy', 'Galician': 'gl', 'Georgian': 'ka', 'German': 'de', 'Greek': 'el',
+    'Gujarati': 'gu', 'Haitian Creole': 'ht', 'Hausa': 'ha', 'Hawaiian': 'haw', 'Hebrew': 'he',
+    'Hindi': 'hi', 'Hmong': 'hmn', 'Hungarian': 'hu', 'Icelandic': 'is', 'Igbo': 'ig', 'Indonesian': 'id',
+    'Irish': 'ga', 'Italian': 'it', 'Japanese': 'ja', 'Javanese': 'jv', 'Kannada': 'kn', 'Kazakh': 'kk',
+    'Khmer': 'km', 'Kinyarwanda': 'rw', 'Korean': 'ko', 'Kurdish': 'ku', 'Kyrgyz': 'ky', 'Lao': 'lo',
+    'Latin': 'la', 'Latvian': 'lv', 'Lithuanian': 'lt', 'Luxembourgish': 'lb', 'Macedonian': 'mk',
+    'Malagasy': 'mg', 'Malay': 'ms', 'Malayalam': 'ml', 'Maltese': 'mt', 'Maori': 'mi', 'Marathi': 'mr',
+    'Mongolian': 'mn', 'Myanmar (Burmese)': 'my', 'Nepali': 'ne', 'Norwegian': 'no', 'Nyanja': 'ny',
+    'Odia': 'or', 'Pashto': 'ps', 'Persian': 'fa', 'Polish': 'pl', 'Portuguese': 'pt', 'Punjabi': 'pa',
+    'Romanian': 'ro', 'Russian': 'ru', 'Samoan': 'sm', 'Scots Gaelic': 'gd', 'Serbian': 'sr', 'Sesotho': 'st',
+    'Shona': 'sn', 'Sindhi': 'sd', 'Sinhala': 'si', 'Slovak': 'sk', 'Slovenian': 'sl', 'Somali': 'so',
+    'Spanish': 'es', 'Sundanese': 'su', 'Swahili': 'sw', 'Swedish': 'sv', 'Tajik': 'tg', 'Tamil': 'ta',
+    'Tatar': 'tt', 'Telugu': 'te', 'Thai': 'th', 'Turkish': 'tr', 'Turkmen': 'tk', 'Ukrainian': 'uk',
+    'Urdu': 'ur', 'Uyghur': 'ug', 'Uzbek': 'uz', 'Welsh': 'cy', 'Xhosa': 'xh', 'Yiddish': 'yi',
+    'Yoruba': 'yo', 'Zulu': 'zu'
+}
+lang_names = list(LANGUAGES.keys())
 
-SUPPORTED_LANGUAGES = get_all_languages()
-lang_names = sorted(list(SUPPORTED_LANGUAGES.keys()))
+# --- CÁC HÀM XỬ LÝ VIDEO & PHỤ ĐỀ ---
+def generate_subtitles(subs):
+    vtt_content = "WEBVTT\n\n"
+    srt_content = ""
+    for i, sub in enumerate(subs):
+        start_vtt = f"{sub.start.hours:02d}:{sub.start.minutes:02d}:{sub.start.seconds:02d}.{sub.start.milliseconds:03d}"
+        end_vtt = f"{sub.end.hours:02d}:{sub.end.minutes:02d}:{sub.end.seconds:02d}.{sub.end.milliseconds:03d}"
+        vtt_content += f"{start_vtt} --> {end_vtt}\n{sub.text}\n\n"
+        
+        start_srt = f"{sub.start.hours:02d}:{sub.start.minutes:02d}:{sub.start.seconds:02d},{sub.start.milliseconds:03d}"
+        end_srt = f"{sub.end.hours:02d}:{sub.end.minutes:02d}:{sub.end.seconds:02d},{sub.end.milliseconds:03d}"
+        srt_content += f"{i+1}\n{start_srt} --> {end_srt}\n{sub.text}\n\n"
+    return vtt_content, srt_content
 
-# --- HÀM DỊCH SIÊU BỀN (CHỐNG CHẶN IP TRÊN WEB) ---
-def smart_translate(text, tgt_code):
+def hardsub_video(mp4_bytes, srt_string):
+    temp_dir = tempfile.mkdtemp()
+    vid_path = os.path.join(temp_dir, "input.mp4")
+    srt_path = os.path.join(temp_dir, "sub.srt")
+    out_path = os.path.join(temp_dir, "output.mp4")
+    
+    with open(vid_path, "wb") as f_vid: f_vid.write(mp4_bytes)
+    with open(srt_path, "w", encoding="utf-8") as f_srt: f_srt.write(srt_string)
+    
+    try:
+        subprocess.run(["ffmpeg", "-y", "-i", "input.mp4", "-vf", "subtitles=sub.srt", "-c:a", "copy", "-preset", "fast", "output.mp4"], cwd=temp_dir, check=True, capture_output=True)
+        with open(out_path, "rb") as f: out_bytes = f.read()
+        return out_bytes
+    except Exception as e: return None
+    finally:
+        if os.path.exists(vid_path): os.remove(vid_path)
+        if os.path.exists(srt_path): os.remove(srt_path)
+        if os.path.exists(out_path): os.remove(out_path)
+        try: os.rmdir(temp_dir)
+        except: pass
+
+# --- HÀM TỰ ĐỘNG GỌT DẤU TIẾNG VIỆT ---
+def remove_vn_accents(txt):
+    patterns = {
+        '[àáảãạăắằẳẵặâấầẩẫậ]': 'a', '[ÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬ]': 'A',
+        '[èéẻẽẹêếềểễệ]': 'e', '[ÈÉẺẼẸÊẾỀỂỄỆ]': 'E',
+        '[ìíỉĩị]': 'i', '[ÌÍỈĨỊ]': 'I',
+        '[òóỏõọôốồổỗộơớờởỡợ]': 'o', '[ÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢ]': 'O',
+        '[ùúủũụưứừửữự]': 'u', '[ÙÚỦŨỤƯỨỪỬỮỰ]': 'U',
+        '[ỳýỷỹỵ]': 'y', '[ỲÝỶỸỴ]': 'Y',
+        '[đ]': 'd', '[Đ]': 'D'
+    }
+    for regex, replace in patterns.items():
+        txt = re.sub(regex, replace, txt)
+    return txt
+
+# --- HÀM TỰ ĐỘNG DỊCH (MICROSOFT BING CỨU CÁNH) ---
+def smart_translate(text, src='auto', tgt='vi'):
     if not text or not text.strip(): return text
     try:
-        # Ưu tiên 1: Google (Nhanh và chuẩn)
-        return GoogleTranslator(source='auto', target=tgt_code).translate(text)
+        time.sleep(0.3) # Giãn cách một chút để máy chủ không block
+        # Ưu tiên 1: Dùng Microsoft Bing (cực kỳ trâu bò, ít bị chặn IP)
+        return ts.translate_text(text, translator='bing', from_language='auto', to_language=tgt)
     except:
         try:
-            # Ưu tiên 2: MyMemory (Bản dự phòng khi Google chặn IP server)
-            return MyMemoryTranslator(source='auto', target=tgt_code).translate(text)
-        except:
-            return text
+            # Ưu tiên 2: Dùng Alibaba làm phương án dự phòng
+            return ts.translate_text(text, translator='alibaba', from_language='auto', to_language=tgt)
+        except Exception as e:
+            return f"{text} (Lỗi Cloud: {str(e)})"
 
-# --- CÁC HÀM XỬ LÝ PHỤ ĐỀ ---
-def generate_subtitles(subs):
-    vtt = "WEBVTT\n\n"
-    srt = ""
-    for i, sub in enumerate(subs):
-        start = f"{sub.start.hours:02d}:{sub.start.minutes:02d}:{sub.start.seconds:02d}"
-        end = f"{sub.end.hours:02d}:{sub.end.minutes:02d}:{sub.end.seconds:02d}"
-        vtt += f"{start}.{sub.start.milliseconds:03d} --> {end}.{sub.end.milliseconds:03d}\n{sub.text}\n\n"
-        srt += f"{i+1}\n{start},{sub.start.milliseconds:03d} --> {end},{sub.end.milliseconds:03d}\n{sub.text}\n\n"
-    return vtt, srt
+# --- HÀM PHÁT ÂM ---
+def speak(text, lang_code):
+    try:
+        if lang_code == 'en' or lang_code.startswith('en'):
+            text = remove_vn_accents(text)
+            tu_dien = {
+                "Quy": "Kwee", "quy": "kwee",
+                "Phu": "Foo", "phu": "foo",
+                "Nguyen": "Nwin", "nguyen": "nwin"
+            }
+            for tu_goc, tu_moi in tu_dien.items():
+                text = text.replace(tu_goc, tu_moi)
 
-# --- GIAO DIỆN ---
-st.title("🛡️ Siêu App Dịch Thuật AI Toàn Diện")
-tab1, tab2, tab3 = st.tabs(["📝 Văn bản & Giọng nói", "📸 Dịch Ảnh", "🎬 Dịch Phim AI"])
+        tts_lang = lang_code.split('-')[0]
+        if 'zh' in lang_code: tts_lang = 'zh-CN'
+        tts = gTTS(text=text, lang=tts_lang)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        return fp
+    except: return None
 
-# TAB 1: VĂN BẢN & GIỌNG NÓI
+st.title("🛡️ App Dịch Thuật AI Toàn Diện")
+tab1, tab2, tab3 = st.tabs(["📝 Dịch Văn Bản", "📸 Dịch hình ảnh", "🎬 Phụ Đề Phim & Tách Lời AI"])
+
+# TAB 1: DỊCH VĂN BẢN (GHI ÂM MICRO)
 with tab1:
     c1, c2 = st.columns(2)
-    if "speech_text" not in st.session_state: st.session_state.speech_text = ""
-    
     with c1:
-        st.write("🎙️ **Ghi âm giọng nói:**")
-        audio_data = audio_recorder(text="Nhấn để nói", recording_color="#ff4b4b")
-        if audio_data:
-            with st.spinner("AI đang nghe..."):
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                    tmp.write(audio_data)
-                    res = whisper_model.transcribe(tmp.name)
-                    st.session_state.speech_text = res['text']
-                os.remove(tmp.name)
+        st.markdown("### Nhập liệu")
         
-        text_in = st.text_area("Văn bản nguồn:", value=st.session_state.speech_text, height=150)
+        if "txt_in" not in st.session_state:
+            st.session_state.txt_in = ""
+            
+        st.write("🎙️ **Đọc bằng Micro:**")
+        audio_bytes = audio_recorder(text="Bấm vào mic để nói", recording_color="#ff4b4b", neutral_color="#888888")
+        
+        if audio_bytes:
+            audio_hash = hashlib.md5(audio_bytes).hexdigest()
+            if "last_audio" not in st.session_state or st.session_state.last_audio != audio_hash:
+                st.session_state.last_audio = audio_hash
+                with st.spinner("AI đang nghe và gõ chữ..."):
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
+                        tmp_audio.write(audio_bytes)
+                        tmp_path = tmp_audio.name
+                    try:
+                        import whisper
+                        model = whisper.load_model("base")
+                        res = model.transcribe(tmp_path)
+                        st.session_state.txt_in = res['text'].strip()
+                    except Exception as e:
+                        st.error("Lỗi khi nghe giọng nói!")
+                    finally:
+                        if os.path.exists(tmp_path): os.remove(tmp_path)
+                if hasattr(st, "rerun"): st.rerun()
+                else: st.experimental_rerun()
+
+        text_in = st.text_area("Hoặc gõ văn bản gốc vào đây:", value=st.session_state.txt_in, key="txt_in_area", height=150)
+        source_lang = st.selectbox("Từ:", ["Auto Detect"] + lang_names, key="src_lang")
+        
+        if st.button("🔊 Nghe bản gốc", key="btn_speak_orig"):
+            if text_in.strip():
+                s_code = 'en' if source_lang == "Auto Detect" else LANGUAGES[source_lang]
+                audio_orig = speak(text_in, s_code)
+                if audio_orig: st.audio(audio_orig)
     
     with c2:
-        target_lang = st.selectbox("Dịch sang ngôn ngữ:", lang_names, index=lang_names.index('Vietnamese'))
-        if st.button("CHUYỂN NGỮ & PHÁT ÂM"):
-            tgt_code = SUPPORTED_LANGUAGES[target_lang]
-            translated = smart_translate(text_in, tgt_code)
-            st.success(translated)
-            # Phát âm
-            try:
-                tts = gTTS(text=translated, lang=tgt_code.split('-')[0])
-                fp = io.BytesIO()
-                tts.write_to_fp(fp)
-                st.audio(fp)
-            except: st.warning("Ngôn ngữ này không hỗ trợ phát âm.")
+        st.markdown("### Kết quả")
+        target_lang = st.selectbox("Sang:", lang_names, index=lang_names.index('Vietnamese'), key="tgt_lang")
+        if st.button("CHUYỂN NGỮ & PHÁT ÂM", key="btn_dich"):
+            if text_in.strip():
+                with st.spinner('Đang dịch...'):
+                    t_code = LANGUAGES[target_lang]
+                    s_code = 'auto' if source_lang == "Auto Detect" else LANGUAGES[source_lang]
+                    translated = smart_translate(text_in, s_code, t_code)
+                    
+                    if "(Lỗi Cloud" in translated:
+                        st.error(translated)
+                    else:
+                        st.success(translated)
+                        audio_trans = speak(translated, t_code)
+                        if audio_trans: st.audio(audio_trans)
 
-# TAB 2: DỊCH ẢNH (OCR)
+# ==========================================
+# TAB 2: DỊCH ẢNH (GỌI CAMERA GỐC CỦA ĐIỆN THOẠI)
+# ==========================================
 with tab2:
-    up_img = st.file_uploader("Tải ảnh lên:", type=['jpg','png','jpeg'])
-    if up_img:
-        img = Image.open(up_img).convert("RGB")
-        if st.button("QUÉT & DỊCH TRỰC TIẾP"):
-            with st.spinner("AI đang đọc chữ..."):
+    st.markdown("### 📸 Dịch trực tiếp trên hình ảnh")
+    
+    # Mẹo gọi Camera: Dùng file_uploader nhưng giới hạn định dạng ảnh
+    up_file = st.file_uploader("Tải ảnh hoặc Chụp ảnh trực tiếp:", type=['jpg','png','jpeg'], key="up_img")
+    
+    if up_file:
+        img = Image.open(up_file).convert("RGB")
+        st.image(img, caption="Ảnh gốc cần dịch", width=400)
+        
+        if st.button("QUÉT & DỊCH ĐÈ", key="btn_scan"):
+            with st.spinner("AI đang nhận diện chữ và dịch..."):
+                img_np = np.array(img)
+                result = reader.readtext(img_np)
                 draw = ImageDraw.Draw(img)
-                results = reader.readtext(np.array(img))
-                for (bbox, text, prob) in results:
+                try: 
+                    font = ImageFont.truetype("arial.ttf", 20)
+                except: 
+                    font = ImageFont.load_default()
+                    
+                for (bbox, text, prob) in result:
                     if prob > 0.2:
-                        p1 = tuple(map(int, bbox[0]))
-                        trans = smart_translate(text, 'vi') # Mặc định dịch ảnh sang tiếng Việt
-                        draw.text(p1, trans, fill="red")
+                        p1, p2, p3, p4 = [tuple(map(int, p)) for p in bbox]
+                        draw.polygon([p1, p2, p3, p4], fill="white")
+                        trans = smart_translate(text, 'auto', 'vi')
+                        draw.text(p1, trans, fill="black", font=font)
+                
+                st.subheader("Kết quả Google Lens:")
                 st.image(img, use_container_width=True)
 
-# TAB 3: DỊCH PHIM (BẢN FIX LỖI SERVER)
+# TAB 3: DỊCH PHIM
 with tab3:
-    if "srt_final" not in st.session_state: st.session_state.srt_final = None
-    if "vtt_final" not in st.session_state: st.session_state.vtt_final = None
+    st.markdown("### 🎬 Xưởng Dịch Phim & Bóc Băng Tự Động")
+    col_srt, col_mp4 = st.columns(2)
+    with col_srt:
+        srt_file = st.file_uploader("1. Tải phụ đề (.srt) - NẾU CÓ:", type=['srt'], key="up_srt")
+    with col_mp4:
+        mp4_file = st.file_uploader("2. Tải video (.mp4):", type=['mp4'], key="up_mp4")
 
-    up_vid = st.file_uploader("Tải video (.mp4):", type=['mp4'])
-    if up_vid:
-        st.video(up_vid)
-        tgt_vid_lang = st.selectbox("Chọn ngôn ngữ phụ đề:", lang_names, index=lang_names.index('Vietnamese'), key="vid_lang")
+    if srt_file or mp4_file:
+        st.markdown("---")
+        target_lang_srt = st.selectbox("3. Dịch sang ngôn ngữ:", lang_names, index=lang_names.index('Vietnamese'), key="tgt_srt")
+        t_code_srt = LANGUAGES[target_lang_srt]
         
-        if st.button("🤖 BẮT ĐẦU BÓC BĂNG & DỊCH PHIM"):
-            with st.spinner("AI đang nghe video (Whisper)..."):
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-                    tmp.write(up_vid.getvalue())
-                    result = whisper_model.transcribe(tmp.name)
-                os.remove(tmp.name)
-                
-                subs = pysrt.SubRipFile()
-                tgt_code = SUPPORTED_LANGUAGES[tgt_vid_lang]
-                
-                progress = st.progress(0)
-                for i, seg in enumerate(result['segments']):
-                    item = pysrt.SubRipItem(index=i+1)
-                    item.start.seconds = seg['start']
-                    item.end.seconds = seg['end']
-                    # Dịch từng câu
-                    item.text = smart_translate(seg['text'], tgt_code)
-                    subs.append(item)
-                    progress.progress((i + 1) / len(result['segments']))
-                    time.sleep(0.1) # Tránh bị server chặn vì yêu cầu quá nhanh
-                
-                vtt, srt = generate_subtitles(subs)
-                st.session_state.srt_final = srt
-                st.session_state.vtt_final = vtt
-                st.success("✅ Đã xử lý xong!")
-
-        if st.session_state.srt_final:
-            st.markdown("### Kết quả:")
-            st.video(up_vid, subtitles={"Dịch": st.session_state.vtt_final})
-            st.download_button("📥 Tải tệp Phụ đề (.srt)", st.session_state.srt_final, "subtitles.srt")
+        if srt_file:
+            content = srt_file.read().decode('utf-8')
+            subs = pysrt.from_string(content)
+            c3, c4 = st.columns(2)
+            with c3:
+                if st.button("▶️ DỊCH VÀ XEM NHÁP"):
+                    area = st.empty()
+                    for i in range(min(30, len(subs))):
+                        trans = smart_translate(subs[i].text, 'auto', t_code_srt)
+                        area.markdown(f"<div style='background:#1e1e1e; color:white; padding:15px; border-radius:10px; border-left: 5px solid #ffcc00; margin-bottom: 10px;'><small style='color:#888'>{subs[i].text}</small><br><strong style='font-size:20px; color:#ffcc00'>{trans}</strong></div>", unsafe_allow_html=True)
+            with c4:
+                if st.button("📥 DỊCH TOÀN BỘ PHIM"):
+                    with st.spinner('Đang dịch...'):
+                        progress_bar = st.progress(0)
+                        for i, sub in enumerate(subs):
+                            if sub.text.strip():
+                                sub.text = smart_translate(sub.text, 'auto', t_code_srt)
+                            progress_bar.progress((i + 1) / len(subs))
+                        vtt_out, srt_out = generate_subtitles(subs)
+                        st.success("🎉 Dịch hoàn tất!")
+                        if mp4_file is not None:
+                            _, vid_col, _ = st.columns([1, 3, 1])
+                            with vid_col:
+                                st.video(mp4_file, subtitles={f"{target_lang_srt}": vtt_out})
+                            with st.spinner("🔥 Đang ép chữ..."):
+                                muxed_vid = hardsub_video(mp4_file.getvalue(), srt_out)
+                                if muxed_vid:
+                                    st.download_button(label="📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ", data=muxed_vid, file_name=f"Vietsub_{mp4_file.name}", mime="video/mp4")
+                        st.download_button(label="📥 Tải tệp phụ đề (.srt)", data=srt_out, file_name=f"Dich_{srt_file.name}", mime="text/plain")
+        
+        elif mp4_file and not srt_file:
+            st.info("💡 AI sẽ tự động bóc băng video!")
+            if st.button("🤖 KÍCH HOẠT AI NGHE"):
+                with st.spinner("Đang tải AI (Mô hình Base)..."):
+                    import whisper
+                    model = whisper.load_model("base")
+                with st.spinner("Đang nghe video..."):
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+                        tmp.write(mp4_file.read())
+                        tmp_path = tmp.name
+                    result = model.transcribe(tmp_path)
+                    def format_time(seconds):
+                        h, m, s = int(seconds // 3600), int((seconds % 3600) // 60), int(seconds % 60)
+                        ms = int((seconds - int(seconds)) * 1000)
+                        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+                    raw_srt = ""
+                    for i, seg in enumerate(result['segments']):
+                        raw_srt += f"{i+1}\n{format_time(seg['start'])} --> {format_time(seg['end'])}\n{seg['text'].strip()}\n\n"
+                    os.remove(tmp_path)
+                subs = pysrt.from_string(raw_srt)
+                progress_bar = st.progress(0)
+                for i, sub in enumerate(subs):
+                    if sub.text.strip():
+                        sub.text = smart_translate(sub.text, 'auto', t_code_srt)
+                    progress_bar.progress((i + 1) / len(subs))
+                vtt_out, srt_out = generate_subtitles(subs)
+                st.success("🎉 Hoàn tất!")
+                _, vid_col_ai, _ = st.columns([1, 3, 1])
+                with vid_col_ai:
+                    st.video(mp4_file, subtitles={f"{target_lang_srt}": vtt_out})
+                with st.spinner("🔥 Đang ép chữ..."):
+                    muxed_vid = hardsub_video(mp4_file.getvalue(), srt_out)
+                    if muxed_vid:
+                        st.download_button(label="📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ", data=muxed_vid, file_name=f"AI_Vietsub_{mp4_file.name}", mime="video/mp4")
+                st.download_button(label="📥 Tải tệp Vietsub (.srt)", data=srt_out, file_name="AI_Dich_Tudong.srt", mime="text/plain")
