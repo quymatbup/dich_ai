@@ -138,7 +138,7 @@ def speak(text, lang_code):
     except: return None
 
 st.title("🛡️ Siêu App Dịch Thuật AI Toàn Diện")
-tab1, tab2, tab3 = st.tabs(["📝 Dịch Văn Bản", "📸 Google Lens (Dịch Đè)", "🎬 Phụ Đề Phim & Tách Lời AI"])
+tab1, tab2, tab3 = st.tabs(["📝 Dịch Văn Bản", "📸 Dịch hình ảnh", "🎬 Phụ Đề Phim & Tách Lời AI"])
 
 # ==========================================
 # TAB 1: DỊCH VĂN BẢN (GHI ÂM MICRO)
@@ -158,7 +158,7 @@ with tab1:
             audio_hash = hashlib.md5(audio_bytes).hexdigest()
             if "last_audio" not in st.session_state or st.session_state.last_audio != audio_hash:
                 st.session_state.last_audio = audio_hash
-                with st.spinner("AI đang nghe và gõ chữ..."):
+                with st.spinner("AI đang nghe ..."):
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
                         tmp_audio.write(audio_bytes)
                         tmp_path = tmp_audio.name
