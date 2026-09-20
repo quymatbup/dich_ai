@@ -270,39 +270,39 @@ with tab3:
                                 if muxed_vid:
                                     st.download_button(label="📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ", data=muxed_vid, file_name=f"Vietsub_{mp4_file.name}", mime="video/mp4")
                         st.download_button(label="📥 Tải tệp phụ đề (.srt)", data=srt_out, file_name=f"Dich_{srt_file.name}", mime="text/plain")
-            
-            elif mp4_file and not srt_file:
-                st.info("💡 AI sẽ tự động bóc băng video!")
-                if st.button("🤖 KÍCH HOẠT AI NGHE"):
-                    with st.spinner("Đang tải AI (Mô hình Base)..."):
-                        import whisper
-                        model = whisper.load_model("base")
-                    with st.spinner("Đang nghe video..."):
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-                            tmp.write(mp4_file.read())
-                            tmp_path = tmp.name
-                        result = model.transcribe(tmp_path)
-                        def format_time(seconds):
-                            h, m, s = int(seconds // 3600), int((seconds % 3600) // 60), int(seconds % 60)
-                            ms = int((seconds - int(seconds)) * 1000)
-                            return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-                        raw_srt = ""
-                        for i, seg in enumerate(result['segments']):
-                            raw_srt += f"{i+1}\n{format_time(seg['start'])} --> {format_time(seg['end'])}\n{seg['text'].strip()}\n\n"
-                        os.remove(tmp_path)
-                    subs = pysrt.from_string(raw_srt)
-                    progress_bar = st.progress(0)
-                    for i, sub in enumerate(subs):
-                        if sub.text.strip():
-                            sub.text = smart_translate(sub.text, 'auto', t_code_srt)
-                        progress_bar.progress((i + 1) / len(subs))
-                    vtt_out, srt_out = generate_subtitles(subs)
-                    st.success("🎉 Hoàn tất!")
-                    _, vid_col_ai, _ = st.columns([1, 3, 1])
-                    with vid_col_ai:
-                        st.video(mp4_file, subtitles={f"{target_lang_srt}": vtt_out})
-                    with st.spinner("🔥 Đang ép chữ..."):
-                        muxed_vid = hardsub_video(mp4_file.getvalue(), srt_out)
-                        if muxed_vid:
-                            st.download_button(label="📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ", data=muxed_vid, file_name=f"AI_Vietsub_{mp4_file.name}", mime="video/mp4")
-                    st.download_button(label="📥 Tải tệp Vietsub (.srt)", data=srt_out, file_name="AI_Dich_Tudong.srt", mime="text/plain")
+        
+        elif mp4_file and not srt_file:
+            st.info("💡 AI sẽ tự động bóc băng video!")
+            if st.button("🤖 KÍCH HOẠT AI NGHE"):
+                with st.spinner("Đang tải AI (Mô hình Base)..."):
+                    import whisper
+                    model = whisper.load_model("base")
+                with st.spinner("Đang nghe video..."):
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+                        tmp.write(mp4_file.read())
+                        tmp_path = tmp.name
+                    result = model.transcribe(tmp_path)
+                    def format_time(seconds):
+                        h, m, s = int(seconds // 3600), int((seconds % 3600) // 60), int(seconds % 60)
+                        ms = int((seconds - int(seconds)) * 1000)
+                        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+                    raw_srt = ""
+                    for i, seg in enumerate(result['segments']):
+                        raw_srt += f"{i+1}\n{format_time(seg['start'])} --> {format_time(seg['end'])}\n{seg['text'].strip()}\n\n"
+                    os.remove(tmp_path)
+                subs = pysrt.from_string(raw_srt)
+                progress_bar = st.progress(0)
+                for i, sub in enumerate(subs):
+                    if sub.text.strip():
+                        sub.text = smart_translate(sub.text, 'auto', t_code_srt)
+                    progress_bar.progress((i + 1) / len(subs))
+                vtt_out, srt_out = generate_subtitles(subs)
+                st.success("🎉 Hoàn tất!")
+                _, vid_col_ai, _ = st.columns([1, 3, 1])
+                with vid_col_ai:
+                    st.video(mp4_file, subtitles={f"{target_lang_srt}": vtt_out})
+                with st.spinner("🔥 Đang ép chữ..."):
+                    muxed_vid = hardsub_video(mp4_file.getvalue(), srt_out)
+                    if muxed_vid:
+                        st.download_button(label="📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ", data=muxed_vid, file_name=f"AI_Vietsub_{mp4_file.name}", mime="video/mp4")
+                st.download_button(label="📥 Tải tệp Vietsub (.srt)", data=srt_out, file_name="AI_Dich_Tudong.srt", mime="text/plain")
