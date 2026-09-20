@@ -4,6 +4,6 @@ Pillow
 numpy
 pysrt
 gTTS
-translators
+deep-translator
 audio_recorder_streamlit
 openai-whisper
