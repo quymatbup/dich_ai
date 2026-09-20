@@ -202,33 +202,55 @@ with tab1:
 # TAB 2: DỊCH HÌNH ẢNH
 # ==========================================
 with tab2:
-    st.markdown("### 📸 Dịch trực tiếp trên hình ảnh")
-    up_file = st.file_uploader("Tải ảnh hoặc Chụp ảnh trực tiếp:", type=['jpg','png','jpeg'], key="up_img")
+    st.markdown("### 📸 Dịch văn bản trên ảnh chụp")
+    st.info("💡 Trên điện thoại: Bấm **Upload**, chọn **Máy ảnh** để chụp tài liệu trực tiếp.")
+    
+    up_file = st.file_uploader("Chọn hình ảnh:", type=['jpg','png','jpeg'], key="up_img")
     
     if up_file:
         img = Image.open(up_file).convert("RGB")
-        # Ảnh gốc hiển thị tràn viền
-        st.image(img, caption="Ảnh gốc cần dịch", use_container_width=True)
+        st.image(img, caption="Ảnh gốc", use_container_width=True)
         
-        if st.button("QUÉT & DỊCH ĐÈ", key="btn_scan"):
-            with st.spinner("AI đang xử lý nhận diện và dịch..."):
+        target_lang_img = st.selectbox("Dịch ảnh sang:", lang_names, index=lang_names.index('Vietnamese'), key="img_lang")
+        
+        if st.button("🔍 QUÉT & DỊCH ĐÈ", type="primary", use_container_width=True):
+            with st.spinner("AI đang bóc tách chữ và dịch..."):
                 img_np = np.array(img)
                 result = reader.readtext(img_np)
                 draw = ImageDraw.Draw(img)
-                try: 
-                    font = ImageFont.truetype("arial.ttf", 20)
-                except: 
-                    font = ImageFont.load_default()
-                    
+                
+                # Cứu cánh Font chữ: Tự động tải Font Roboto từ Google nếu máy chủ chưa có
+                font_path = "Roboto-Regular.ttf"
+                if not os.path.exists(font_path):
+                    import urllib.request
+                    try:
+                        urllib.request.urlretrieve("https://github.com/googlefonts/roboto/raw/main/src/hinted/Roboto-Regular.ttf", font_path)
+                    except:
+                        pass
+                        
+                t_code_img = LANGUAGES[target_lang_img]
                 for (bbox, text, prob) in result:
                     if prob > 0.2:
+                        # Lấy tọa độ 4 góc của khung chữ
                         p1, p2, p3, p4 = [tuple(map(int, p)) for p in bbox]
+                        
+                        # THUẬT TOÁN ĐO CỠ CHỮ: Tính chiều cao khung chữ gốc để co giãn chữ mới
+                        box_height = abs(p4[1] - p1[1])
+                        font_size = max(14, int(box_height * 0.85)) # Chữ to bằng 85% chiều cao khung gốc
+                        
+                        try: 
+                            font = ImageFont.truetype(font_path, font_size)
+                        except: 
+                            font = ImageFont.load_default()
+                            
+                        # Tô trắng nền để che chữ cũ
                         draw.polygon([p1, p2, p3, p4], fill="white")
-                        trans = smart_translate(text, 'auto', 'vi')
+                        
+                        # Dịch và vẽ chữ mới với kích thước chuẩn
+                        trans = smart_translate(text, 'auto', t_code_img)
                         draw.text(p1, trans, fill="black", font=font)
                         
-                st.subheader("Kết quả Google Lens:")
-                # Ép ảnh kết quả tràn viền to rõ trên điện thoại
+                st.markdown("### Bản dịch đè trên ảnh:")
                 st.image(img, use_container_width=True)
 
 # TAB 3: DỊCH PHIM
