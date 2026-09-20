@@ -208,7 +208,7 @@ with tab2:
     up_file = st.file_uploader("Tải ảnh lên:", type=['jpg','png','jpeg'], key="up_img")
     if up_file:
         img = Image.open(up_file).convert("RGB")
-        st.image(img, caption="Ảnh gốc", width=400)
+        st.image(img, caption="Ảnh gốc cần dịch", use_container_width=True)
         if st.button("QUÉT & DỊCH ĐÈ", key="btn_scan"):
             with st.spinner("AI đang xử lý..."):
                 img_np = np.array(img)
