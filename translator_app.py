@@ -204,22 +204,38 @@ with tab1:
 with tab2:
     st.markdown("### 📸 Dịch văn bản trên ảnh chụp")
     st.info("💡 Trên điện thoại: Bấm **Upload**, chọn **Máy ảnh** để chụp tài liệu trực tiếp.")
+    # ==========================================
+# TAB 2: DỊCH HÌNH ẢNH
+# ==========================================
+with tab2:
+    st.markdown("### 📸 Dịch văn bản trên ảnh chụp")
+    st.info("💡 Trên điện thoại: Bấm **Upload**, chọn **Máy ảnh** để chụp tài liệu trực tiếp.")
     
     up_file = st.file_uploader("Chọn hình ảnh:", type=['jpg','png','jpeg'], key="up_img")
     
     if up_file:
+        from PIL import ImageOps # Công cụ xử lý ảnh chống sập
+        
+        # 1. Mở ảnh và tự động sửa lỗi xoay ngang của camera điện thoại
         img = Image.open(up_file).convert("RGB")
+        img = ImageOps.exif_transpose(img)
+        
+        # 2. CHỐNG SẬP WEB: Tự động thu nhỏ nếu ảnh chụp từ camera quá to
+        max_size = 1200 # Giới hạn kích thước an toàn cho Streamlit Cloud
+        if img.width > max_size or img.height > max_size:
+            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
         st.image(img, caption="Ảnh gốc", use_container_width=True)
         
         target_lang_img = st.selectbox("Dịch ảnh sang:", lang_names, index=lang_names.index('Vietnamese'), key="img_lang")
         
         if st.button("🔍 QUÉT & DỊCH ĐÈ", type="primary", use_container_width=True):
-            with st.spinner("AI đang bóc tách chữ và dịch..."):
+            with st.spinner("AI đang bóc tách chữ và dịch... (Ảnh đã được nén tối ưu)"):
                 img_np = np.array(img)
                 result = reader.readtext(img_np)
                 draw = ImageDraw.Draw(img)
                 
-                # Cứu cánh Font chữ: Tự động tải Font Roboto từ Google nếu máy chủ chưa có
+                # Tải Font Roboto
                 font_path = "Roboto-Regular.ttf"
                 if not os.path.exists(font_path):
                     import urllib.request
@@ -231,22 +247,17 @@ with tab2:
                 t_code_img = LANGUAGES[target_lang_img]
                 for (bbox, text, prob) in result:
                     if prob > 0.2:
-                        # Lấy tọa độ 4 góc của khung chữ
                         p1, p2, p3, p4 = [tuple(map(int, p)) for p in bbox]
                         
-                        # THUẬT TOÁN ĐO CỠ CHỮ: Tính chiều cao khung chữ gốc để co giãn chữ mới
                         box_height = abs(p4[1] - p1[1])
-                        font_size = max(14, int(box_height * 0.85)) # Chữ to bằng 85% chiều cao khung gốc
+                        font_size = max(14, int(box_height * 0.85))
                         
                         try: 
                             font = ImageFont.truetype(font_path, font_size)
                         except: 
                             font = ImageFont.load_default()
                             
-                        # Tô trắng nền để che chữ cũ
                         draw.polygon([p1, p2, p3, p4], fill="white")
-                        
-                        # Dịch và vẽ chữ mới với kích thước chuẩn
                         trans = smart_translate(text, 'auto', t_code_img)
                         draw.text(p1, trans, fill="black", font=font)
                         
