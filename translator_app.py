@@ -106,10 +106,12 @@ def remove_vn_accents(txt):
 def smart_translate(text, src='auto', tgt='vi'):
     if not text or not text.strip(): return text
     try:
-        time.sleep(0.3)
+        time.sleep(0.3) # Giãn cách một chút để máy chủ không block
+        # Ưu tiên 1: Dùng Microsoft Bing (cực kỳ trâu bò, ít bị chặn IP)
         return ts.translate_text(text, translator='bing', from_language='auto', to_language=tgt)
     except:
         try:
+            # Ưu tiên 2: Dùng Alibaba làm phương án dự phòng
             return ts.translate_text(text, translator='alibaba', from_language='auto', to_language=tgt)
         except Exception as e:
             return f"{text} (Lỗi Cloud: {str(e)})"
@@ -136,7 +138,7 @@ def speak(text, lang_code):
     except: return None
 
 st.title("🛡️ Siêu App Dịch Thuật AI Toàn Diện")
-tab1, tab2, tab3 = st.tabs(["📝 Dịch Văn Bản", "📸 Google Lens (Dịch Đè)", "🎬 Phụ Đề Phim & Tách Lời AI"])
+tab1, tab2, tab3 = st.tabs(["📝 Dịch Văn Bản", "📸 Dịch hình ảnh", "🎬 Phụ Đề Phim & Tách Lời AI"])
 
 # ==========================================
 # TAB 1: DỊCH VĂN BẢN (GHI ÂM MICRO)
@@ -156,7 +158,7 @@ with tab1:
             audio_hash = hashlib.md5(audio_bytes).hexdigest()
             if "last_audio" not in st.session_state or st.session_state.last_audio != audio_hash:
                 st.session_state.last_audio = audio_hash
-                with st.spinner("AI đang nghe và gõ chữ..."):
+                with st.spinner("AI đang nghe ..."):
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
                         tmp_audio.write(audio_bytes)
                         tmp_path = tmp_audio.name
@@ -199,38 +201,28 @@ with tab1:
                         if audio_trans: st.audio(audio_trans)
 
 # ==========================================
-# TAB 2: DỊCH ẢNH (GỌI CAMERA GỐC + TRÀN VIỀN)
+# TAB 2: DỊCH ẢNH
 # ==========================================
 with tab2:
-    st.markdown("### 📸 Dịch trực tiếp trên hình ảnh")
-    st.info("💡 Trên điện thoại: Bấm vào nút **Upload** bên dưới, chọn 'Máy ảnh' (Camera) để chụp trực tiếp.")
-    
-    up_file = st.file_uploader("Tải ảnh hoặc Chụp ảnh trực tiếp:", type=['jpg','png','jpeg'], key="up_img")
-    
+    st.markdown("### Dịch trực tiếp trên hình ảnh")
+    up_file = st.file_uploader("Tải ảnh lên:", type=['jpg','png','jpeg'], key="up_img")
     if up_file:
         img = Image.open(up_file).convert("RGB")
-        # Đã chỉnh use_container_width=True để ảnh to rõ trên điện thoại
         st.image(img, caption="Ảnh gốc cần dịch", use_container_width=True)
-        
         if st.button("QUÉT & DỊCH ĐÈ", key="btn_scan"):
-            with st.spinner("AI đang nhận diện chữ và dịch..."):
+            with st.spinner("AI đang xử lý..."):
                 img_np = np.array(img)
                 result = reader.readtext(img_np)
                 draw = ImageDraw.Draw(img)
-                try: 
-                    font = ImageFont.truetype("arial.ttf", 20)
-                except: 
-                    font = ImageFont.load_default()
-                    
+                try: font = ImageFont.truetype("arial.ttf", 20)
+                except: font = ImageFont.load_default()
                 for (bbox, text, prob) in result:
                     if prob > 0.2:
                         p1, p2, p3, p4 = [tuple(map(int, p)) for p in bbox]
                         draw.polygon([p1, p2, p3, p4], fill="white")
                         trans = smart_translate(text, 'auto', 'vi')
                         draw.text(p1, trans, fill="black", font=font)
-                
                 st.subheader("Kết quả Google Lens:")
-                # Đã chỉnh use_container_width=True cho ảnh kết quả
                 st.image(img, use_container_width=True)
 
 # ==========================================
