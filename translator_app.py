@@ -259,7 +259,7 @@ with tab2:
 # TAB 3: DỊCH PHIM
 with tab3:
     st.markdown("### 🎬 Xưởng Dịch Phim & Bóc Băng Tự Động")
-    col_srt, col_mp4 = st.columns(2)
+    col_srt, col_mp4 = st.columns(2)
     with col_srt:
         srt_file = st.file_uploader("1. Tải phụ đề (.srt) - NẾU CÓ:", type=['srt'], key="up_srt")
     with col_mp4:
