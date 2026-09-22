@@ -198,18 +198,9 @@ with tab1:
                         audio_trans = speak(translated, t_code)
                         if audio_trans: st.audio(audio_trans)
 
-# ==========================================
 # TAB 2: DỊCH HÌNH ẢNH
-# ==========================================
 with tab2:
     st.markdown("### 📸 Dịch văn bản trên ảnh chụp")
-    st.info("💡 Trên điện thoại: Bấm **Upload**, chọn **Máy ảnh** để chụp tài liệu trực tiếp.")
-    # ==========================================
-# TAB 2: DỊCH HÌNH ẢNH
-# ==========================================
-with tab2:
-    st.markdown("### 📸 Dịch văn bản trên ảnh chụp")
-    st.info("💡 Trên điện thoại: Bấm **Upload**, chọn **Máy ảnh** để chụp tài liệu trực tiếp.")
     
     up_file = st.file_uploader("Chọn hình ảnh:", type=['jpg','png','jpeg'], key="up_img")
     
