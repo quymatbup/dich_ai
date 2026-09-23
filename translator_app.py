@@ -86,17 +86,29 @@ def remove_vn_accents(txt):
         txt = re.sub(regex, replace, txt)
     return txt
 
-# --- HÀM TỰ ĐỘNG DỊCH (MICROSOFT BING CỨU CÁNH) ---
+# --- HÀM TỰ ĐỘNG DỊCH (CHỐNG NHẬN DIỆN NHẦM TIẾNG TRUNG) ---
 def smart_translate(text, src='auto', tgt='vi'):
     if not text or not text.strip(): return text
+    
+    # 1. Xử lý mã tiếng Trung riêng cho Bing
+    bing_tgt = tgt
+    if tgt == 'zh-CN' or tgt == 'zh-CHS': bing_tgt = 'zh-Hans' 
+    if tgt == 'zh-TW' or tgt == 'zh-CHT': bing_tgt = 'zh-Hant' 
+    
+    # 2. Xử lý mã tiếng Trung riêng cho Alibaba
+    ali_tgt = tgt
+    if tgt == 'zh-CN' or tgt == 'zh-CHS' or tgt == 'zh-Hans': ali_tgt = 'zh'
+    if tgt == 'zh-TW' or tgt == 'zh-CHT' or tgt == 'zh-Hant': ali_tgt = 'zh-tw'
+    
+    # Ép ngôn ngữ nguồn
+    safe_src = src if src != 'auto' else 'auto'
+    
     try:
-        time.sleep(0.3) 
-        # Ưu tiên 1: Dùng Microsoft Bing (cực kỳ trâu bò, ít bị chặn IP)
-        return ts.translate_text(text, translator='bing', from_language='auto', to_language=tgt)
+        time.sleep(0.3)
+        return ts.translate_text(text, translator='bing', from_language=safe_src, to_language=bing_tgt)
     except:
         try:
-            # Ưu tiên 2: Dùng Alibaba làm phương án dự phòng
-            return ts.translate_text(text, translator='alibaba', from_language='auto', to_language=tgt)
+            return ts.translate_text(text, translator='alibaba', from_language=safe_src, to_language=ali_tgt)
         except Exception as e:
             return f"{text} (Lỗi Cloud: {str(e)})"
 
