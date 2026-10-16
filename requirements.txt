@@ -7,3 +7,4 @@ gTTS
 translators
 audio_recorder_streamlit
 openai-whisper
+deep-translator
