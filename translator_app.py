@@ -107,23 +107,38 @@ def remove_vn_accents(txt):
         txt = re.sub(regex, replace, txt)
     return txt
 
-# --- HÀM DỊCH MỚI (SỬ DỤNG DEEP-TRANSLATOR RẤT ỔN ĐỊNH) ---
+# --- HỆ THỐNG DỊCH ẨN TỰ ĐỘNG CHỐNG GIỚI HẠN (KHÔNG CẦN CHỌN TAY) ---
 def smart_translate(text, src='auto', tgt='vi'):
     if not text or not text.strip():
         return text
     
     clean_text = text.strip()
+    
+    bing_tgt = 'zh-Hans' if tgt in ['zh-CN', 'zh-CHS'] else ('zh-Hant' if tgt in ['zh-TW', 'zh-CHT'] else tgt)
+    ali_tgt = 'zh' if tgt in ['zh-CN', 'zh-CHS', 'zh-Hans'] else ('zh-tw' if tgt in ['zh-TW', 'zh-CHT', 'zh-Hant'] else tgt)
+
+    # Ưu tiên 1: Bing (Trâu bò, không giới hạn request, cực ổn định trên Streamlit)
     try:
-        translated = GoogleTranslator(source='auto', target=tgt).translate(clean_text)
-        return translated
-    except Exception as e:
-        # Dự phòng bằng translators nếu deep-translator có vấn đề
-        try:
-            import translators as ts
-            time.sleep(0.2)
-            return ts.translate_text(clean_text, translator='bing', to_language=tgt)
-        except Exception:
-            return f"{clean_text} (Lỗi API Dịch: {str(e)})"
+        import translators as ts
+        time.sleep(0.3)
+        return ts.translate_text(clean_text, translator='bing', to_language=bing_tgt)
+    except Exception:
+        pass
+        
+    # Ưu tiên 2: Alibaba (Rất ổn định, chữa cháy cực tốt)
+    try:
+        import translators as ts
+        time.sleep(0.3)
+        return ts.translate_text(clean_text, translator='alibaba', to_language=ali_tgt)
+    except Exception:
+        pass
+        
+    # Ưu tiên 3: Google (Dễ bị lỗi Too many requests nên để dự phòng cuối cùng)
+    try:
+        return GoogleTranslator(source='auto', target=tgt).translate(clean_text)
+    except Exception:
+        # Xử lý triệt để: Nếu sập cả 3 mạng, chỉ in đúng 2 chữ "(Lỗi mạng)"
+        return f"{clean_text} (Lỗi mạng)"
 
 def speak(text, lang_code):
     try:
@@ -174,66 +189,6 @@ def get_font_path():
         pass
     return None
 
-def filter_and_group_ocr(raw_results, merge_para=True, min_prob=0.35):
-    """Đã giảm độ khó bộ lọc để không làm mất dòng 'How are you?'"""
-    filtered = []
-    for item in raw_results:
-        if len(item) != 3:
-            continue
-        bbox, text, prob = item
-        txt = text.strip()
-        if not txt or prob < min_prob:
-            continue
-
-        # Lọc icon siêu nhỏ (chỉ 1-2 ký tự không phải chữ)
-        alnum_count = sum(c.isalnum() for c in txt)
-        if alnum_count == 0:
-            continue
-        if len(txt) <= 2 and prob < 0.6 and not txt.isalpha():
-            continue
-
-        xs = [int(p[0]) for p in bbox]
-        ys = [int(p[1]) for p in bbox]
-        x_min, x_max = min(xs), max(xs)
-        y_min, y_max = min(ys), max(ys)
-        filtered.append({
-            'x_min': x_min, 'y_min': y_min,
-            'x_max': x_max, 'y_max': y_max,
-            'text': txt, 'line_count': 1
-        })
-
-    if not filtered or not merge_para:
-        return filtered
-
-    filtered.sort(key=lambda b: (b['y_min'], b['x_min']))
-
-    merged = []
-    for box in filtered:
-        if not merged:
-            merged.append(box)
-            continue
-
-        prev = merged[-1]
-        prev_line_h = (prev['y_max'] - prev['y_min']) / max(1, prev['line_count'])
-        curr_h = box['y_max'] - box['y_min']
-
-        v_gap = box['y_min'] - prev['y_max']
-        h_overlap = min(prev['x_max'], box['x_max']) - max(prev['x_min'], box['x_min'])
-        same_left_margin = abs(box['x_min'] - prev['x_min']) < max(prev_line_h, curr_h) * 2.0
-        similar_font_height = 0.45 <= (curr_h / max(1, prev_line_h)) <= 2.2
-
-        if v_gap < max(prev_line_h, curr_h) * 1.5 and v_gap > -curr_h * 0.5 and (h_overlap > 0 or same_left_margin) and similar_font_height:
-            prev['x_min'] = min(prev['x_min'], box['x_min'])
-            prev['y_min'] = min(prev['y_min'], box['y_min'])
-            prev['x_max'] = max(prev['x_max'], box['x_max'])
-            prev['y_max'] = max(prev['y_max'], box['y_max'])
-            prev['text'] = f"{prev['text']} {box['text']}"
-            prev['line_count'] += 1
-        else:
-            merged.append(box)
-
-    return merged
-
 def wrap_text_by_pixel(draw, text, font, max_width):
     words = text.split()
     if not words:
@@ -251,11 +206,11 @@ def wrap_text_by_pixel(draw, text, font, max_width):
     lines.append(current_line)
     return "\n".join(lines)
 
-def fit_text_to_box(draw, text, box_w, box_h, font_path, line_count=1):
+def fit_text_to_box(draw, text, box_w, box_h, font_path, is_paragraph=False):
     if not font_path:
         return ImageFont.load_default(), text
 
-    est_line_h = box_h / max(1, line_count)
+    est_line_h = box_h / (text.count('\n') + 1) if is_paragraph else box_h
     max_font_size = max(16, min(160, int(est_line_h * 1.15)))
     min_font_size = 10
     padding = 2
@@ -347,19 +302,16 @@ with tab1:
     with c2:
         st.markdown("### Kết quả")
         target_lang = st.selectbox("Sang:", lang_names, index=lang_names.index('Vietnamese'), key="tgt_lang")
+
         if st.button("CHUYỂN NGỮ & PHÁT ÂM", key="btn_dich", type="primary"):
             if text_in.strip():
-                with st.spinner('Đang dịch...'):
+                with st.spinner('Đang dịch (Tự động chống lỗi)...'):
                     t_code = LANGUAGES[target_lang]
                     translated = smart_translate(text_in, 'auto', t_code)
-
-                    if "(Lỗi API Dịch" in translated:
-                        st.error(translated)
-                    else:
-                        st.success(translated)
-                        audio_trans = speak(translated, t_code)
-                        if audio_trans:
-                            st.audio(audio_trans)
+                    st.success(translated)
+                    audio_trans = speak(translated, t_code)
+                    if audio_trans:
+                        st.audio(audio_trans)
 
 # TAB 2: DỊCH HÌNH ẢNH
 with tab2:
@@ -374,200 +326,4 @@ with tab2:
         if img.width > max_size or img.height > max_size:
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
-        col_opt1, col_opt2, col_opt3 = st.columns(3)
-        with col_opt1:
-            ocr_group_label = st.selectbox("Ngôn ngữ chữ trên ảnh gốc:", list(OCR_LANG_GROUPS.keys()), index=0, key="ocr_src_group")
-        with col_opt2:
-            target_lang_img = st.selectbox("Dịch ảnh sang:", lang_names, index=lang_names.index('Vietnamese'), key="img_lang")
-        with col_opt3:
-            st.write("")
-            merge_para = st.checkbox("Gộp các dòng thành đoạn văn (Dịch mượt hơn)", value=True)
-
-        if st.button("🔍 QUÉT & DỊCH ĐÈ LÊN ẢNH", type="primary", use_container_width=True):
-            with st.spinner("AI đang bóc tách chữ và dịch ngữ cảnh..."):
-                ocr_langs = tuple(OCR_LANG_GROUPS[ocr_group_label])
-                reader = load_ocr(ocr_langs)
-
-                img_np = np.array(img)
-                img_translated = img.copy()
-                draw = ImageDraw.Draw(img_translated)
-                font_path = get_font_path()
-                t_code_img = LANGUAGES[target_lang_img]
-
-                raw_results = reader.readtext(img_np, paragraph=False)
-                boxes = filter_and_group_ocr(raw_results, merge_para=merge_para, min_prob=0.35)
-
-                if not boxes:
-                    st.warning("⚠️ Không tìm thấy chữ nào rõ ràng trên bức ảnh này!")
-                else:
-                    original_texts = [b['text'] for b in boxes]
-                    translated_texts = [smart_translate(txt, 'auto', t_code_img) for txt in original_texts]
-
-                    for b, trans in zip(boxes, translated_texts):
-                        x_min, y_min, x_max, y_max = b['x_min'], b['y_min'], b['x_max'], b['y_max']
-                        line_count = b.get('line_count', 1)
-
-                        box_w = max(20, x_max - x_min)
-                        box_h = max(16, y_max - y_min)
-
-                        bg_color, text_color = get_box_colors(img_np, x_min, y_min, x_max, y_max)
-                        font, wrapped_text = fit_text_to_box(draw, trans, box_w, box_h, font_path, line_count=line_count)
-
-                        draw.rectangle(
-                            [max(0, x_min - 2), max(0, y_min - 2), min(img.width, x_max + 2), min(img.height, y_max + 2)],
-                            fill=bg_color
-                        )
-
-                        spacing = max(2, int(font.size * 0.18)) if hasattr(font, 'size') else 4
-                        t_bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=font, spacing=spacing)
-                        tw, th = t_bbox[2] - t_bbox[0], t_bbox[3] - t_bbox[1]
-
-                        if line_count > 1 or "\n" in wrapped_text:
-                            text_x = x_min + 2
-                            text_y = y_min + max(0, (box_h - th) // 2)
-                            align_mode = "left"
-                        else:
-                            text_x = x_min + max(0, (box_w - tw) // 2)
-                            text_y = y_min + max(0, (box_h - th) // 2)
-                            align_mode = "center"
-
-                        draw.multiline_text(
-                            (text_x, text_y),
-                            wrapped_text,
-                            fill=text_color,
-                            font=font,
-                            spacing=spacing,
-                            align=align_mode
-                        )
-
-                    col_before, col_after = st.columns(2)
-                    with col_before:
-                        st.image(img, caption="Ảnh gốc", use_container_width=True)
-                    with col_after:
-                        st.image(img_translated, caption="Bản dịch đè trên ảnh", use_container_width=True)
-
-                    img_byte_arr = io.BytesIO()
-                    img_translated.save(img_byte_arr, format='PNG')
-                    st.download_button(
-                        label="📥 TẢI ẢNH ĐÃ DỊCH VỀ MÁY (.PNG)",
-                        data=img_byte_arr.getvalue(),
-                        file_name=f"Dich_{up_file.name}.png",
-                        mime="image/png",
-                        use_container_width=True
-                    )
-
-                    with st.expander("📄 Xem chi tiết văn bản quét được & bản dịch (Dễ copy)"):
-                        for idx, (orig_t, trans_t) in enumerate(zip(original_texts, translated_texts), 1):
-                            st.markdown(f"**Đoạn {idx}:** `{orig_t}` ➡️ **{trans_t}**")
-        else:
-            st.image(img, caption="Ảnh gốc", use_container_width=True)
-
-# TAB 3: DỊCH PHIM
-with tab3:
-    st.markdown("### 🎬 Xưởng Dịch Phim & Bóc Băng Tự Động")
-    col_srt, col_mp4 = st.columns(2)
-    with col_srt:
-        srt_file = st.file_uploader("1. Tải phụ đề (.srt) - NẾU CÓ:", type=['srt'], key="up_srt")
-    with col_mp4:
-        mp4_file = st.file_uploader("2. Tải video (.mp4):", type=['mp4'], key="up_mp4")
-
-    if srt_file or mp4_file:
-        st.markdown("---")
-        target_lang_srt = st.selectbox("3. Dịch sang ngôn ngữ:", lang_names, index=lang_names.index('Vietnamese'), key="tgt_srt")
-        t_code_srt = LANGUAGES[target_lang_srt]
-
-        if srt_file:
-            content = srt_file.read().decode('utf-8', errors='replace')
-            subs = pysrt.from_string(content)
-
-            if st.button("🚀 BẮT ĐẦU DỊCH", use_container_width=True):
-                with st.spinner('Đang dịch toàn bộ...'):
-                    progress_bar = st.progress(0)
-                    for i, sub in enumerate(subs):
-                        if sub.text.strip():
-                            sub.text = smart_translate(sub.text, 'auto', t_code_srt)
-                        progress_bar.progress((i + 1) / len(subs))
-
-                    vtt_out, srt_out = generate_subtitles(subs)
-                    st.success("🎉 Dịch hoàn tất!")
-
-                    st.markdown("#### 👁️ Bản xem trước:")
-                    preview_area = st.container()
-                    for i in range(min(3, len(subs))):
-                        preview_area.markdown(
-                            f"<div style='background:#1e1e1e; color:white; padding:15px; border-radius:10px; border-left: 5px solid #ffcc00; margin-bottom: 10px;'>"
-                            f"<strong style='font-size:18px; color:#ffcc00'>{subs[i].text}</strong></div>",
-                            unsafe_allow_html=True
-                        )
-
-                    if mp4_file is not None:
-                        _, vid_col, _ = st.columns([1, 3, 1])
-                        with vid_col:
-                            st.video(mp4_file, subtitles={f"{target_lang_srt}": vtt_out})
-                        with st.spinner("🔥 Đang ép phụ đề vào video..."):
-                            muxed_vid = hardsub_video(mp4_file.getvalue(), srt_out)
-                            if muxed_vid:
-                                st.download_button(
-                                    label="📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ",
-                                    data=muxed_vid,
-                                    file_name=f"Vietsub_{mp4_file.name}",
-                                    mime="video/mp4"
-                                )
-
-                    st.download_button(
-                        label="📥 Tải tệp phụ đề (.srt)",
-                        data=srt_out,
-                        file_name=f"Dich_{srt_file.name}",
-                        mime="text/plain"
-                    )
-
-        elif mp4_file and not srt_file:
-            st.info("💡 AI sẽ tự động bóc băng video!")
-            if st.button("🤖 BẮT ĐẦU DỊCH", use_container_width=True):
-                with st.spinner("Đang tải AI (Mô hình Base)..."):
-                    model = load_whisper_model()
-                with st.spinner("Đang nghe video..."):
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-                        tmp.write(mp4_file.read())
-                        tmp_path = tmp.name
-                    result = model.transcribe(tmp_path)
-
-                    def format_time(seconds):
-                        h, m, s = int(seconds // 3600), int((seconds % 3600) // 60), int(seconds % 60)
-                        ms = int((seconds - int(seconds)) * 1000)
-                        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-                    raw_srt = ""
-                    for i, seg in enumerate(result['segments']):
-                        raw_srt += f"{i+1}\n{format_time(seg['start'])} --> {format_time(seg['end'])}\n{seg['text'].strip()}\n\n"
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-
-                subs = pysrt.from_string(raw_srt)
-                progress_bar = st.progress(0)
-                for i, sub in enumerate(subs):
-                    if sub.text.strip():
-                        sub.text = smart_translate(sub.text, 'auto', t_code_srt)
-                    progress_bar.progress((i + 1) / len(subs))
-
-                vtt_out, srt_out = generate_subtitles(subs)
-                st.success("🎉 Hoàn tất!")
-
-                _, vid_col_ai, _ = st.columns([1, 3, 1])
-                with vid_col_ai:
-                    st.video(mp4_file, subtitles={f"{target_lang_srt}": vtt_out})
-                with st.spinner("🔥 Đang ép chữ..."):
-                    muxed_vid = hardsub_video(mp4_file.getvalue(), srt_out)
-                    if muxed_vid:
-                        st.download_button(
-                            label="📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ",
-                            data=muxed_vid,
-                            file_name=f"AI_Vietsub_{mp4_file.name}",
-                            mime="video/mp4"
-                        )
-                st.download_button(
-                    label="📥 Tải tệp Vietsub (.srt)",
-                    data=srt_out,
-                    file_name="AI_Dich_Tudong.srt",
-                    mime="text/plain"
-                )
+        col_opt1, col_
