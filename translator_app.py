@@ -112,7 +112,6 @@ def smart_translate(text, src='auto', tgt='vi'):
     if not text or not text.strip():
         return text
 
-    # Hàm dịch cho 1 câu ngắn (Vẫn giữ 3 lớp bảo vệ)
     def translate_chunk(txt):
         txt = txt.strip()
         if not txt: return ""
@@ -134,17 +133,15 @@ def smart_translate(text, src='auto', tgt='vi'):
         try:
             return GoogleTranslator(source='auto', target=tgt).translate(txt)
         except Exception:
-            return txt # Trả về nguyên gốc nếu sập cả 3 mạng để lát ghép lại
+            return txt
 
     clean_text = text.strip()
     
-    # Nếu đoạn văn quá dài (>250 ký tự), tự động cắt nhỏ theo dấu chấm hoặc xuống dòng
     if len(clean_text) > 250:
         lines = clean_text.split('\n')
         translated_lines = []
         for line in lines:
             if len(line) > 200:
-                # Cắt theo dấu chấm, chấm hỏi, chấm than (giữ lại dấu)
                 sentences = re.split(r'(?<=[.!?])\s+', line)
                 trans_sentences = [translate_chunk(s) for s in sentences if s.strip()]
                 translated_lines.append(" ".join(trans_sentences))
@@ -159,7 +156,6 @@ def smart_translate(text, src='auto', tgt='vi'):
             return f"{clean_text}\n\n(Lỗi mạng: Không thể kết nối máy chủ)"
         return result
     else:
-        # Nếu câu ngắn, dịch luôn 1 lần
         res = translate_chunk(clean_text)
         if res == clean_text and not clean_text.isdigit():
              return f"{clean_text} (Lỗi mạng)"
@@ -384,12 +380,10 @@ with tab2:
                     txt = text.strip()
                     if not txt: continue
                     
-                    # --- BỘ LỌC RÁC: XÓA KHOẢNG TRẮNG ĐỂ CHẶN 'O O Q' ---
                     txt_clean = txt.lower().replace(" ", "")
                     trash_list = ['q', 'oqq', 'b9q', 'oq', 'o', '0q', 'b9', 'c', 'oo', 'ooq', '00q']
                     if txt_clean in trash_list or (len(txt_clean) <= 2 and not any(c.isalpha() for c in txt_clean)):
                         continue
-                    # --------------------------------------------------------
                         
                     xs = [int(p[0]) for p in bbox]
                     ys = [int(p[1]) for p in bbox]
@@ -403,7 +397,6 @@ with tab2:
                     st.warning("⚠️ Không tìm thấy chữ nào rõ ràng trên bức ảnh này!")
                 else:
                     original_texts = [b['text'] for b in boxes]
-                    # Ghép các khối chữ trên ảnh lại để dịch, dùng hàm băm nhỏ bên trên để xử lý
                     joined_text = " \n \n ".join(original_texts)
                     batch_trans = smart_translate(joined_text, 'auto', t_code_img)
                     
@@ -420,4 +413,165 @@ with tab2:
                         box_h = max(16, y_max - y_min)
 
                         bg_color, text_color = get_box_colors(img_np, x_min, y_min, x_max, y_max)
-                        font, wrapped_text = fit_text_to_box(draw, trans, box_w,
+                        font, wrapped_text = fit_text_to_box(draw, trans, box_w, box_h, font_path, is_paragraph=merge_para)
+
+                        draw.rectangle(
+                            [max(0, x_min - 2), max(0, y_min - 2), min(img.width, x_max + 2), min(img.height, y_max + 2)],
+                            fill=bg_color
+                        )
+
+                        spacing = max(2, int(font.size * 0.18)) if hasattr(font, 'size') else 4
+                        t_bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=font, spacing=spacing)
+                        tw, th = t_bbox[2] - t_bbox[0], t_bbox[3] - t_bbox[1]
+
+                        if merge_para or "\n" in wrapped_text:
+                            text_x = x_min + 2
+                            text_y = y_min + max(0, (box_h - th) // 2)
+                            align_mode = "left"
+                        else:
+                            text_x = x_min + max(0, (box_w - tw) // 2)
+                            text_y = y_min + max(0, (box_h - th) // 2)
+                            align_mode = "center"
+
+                        draw.multiline_text(
+                            (text_x, text_y),
+                            wrapped_text,
+                            fill=text_color,
+                            font=font,
+                            spacing=spacing,
+                            align=align_mode
+                        )
+
+                    col_before, col_after = st.columns(2)
+                    with col_before:
+                        st.image(img, caption="Ảnh gốc", use_container_width=True)
+                    with col_after:
+                        st.image(img_translated, caption="Bản dịch đè trên ảnh", use_container_width=True)
+
+                    img_byte_arr = io.BytesIO()
+                    img_translated.save(img_byte_arr, format='PNG')
+                    st.download_button(
+                        label="📥 TẢI ẢNH ĐÃ DỊCH VỀ MÁY (.PNG)",
+                        data=img_byte_arr.getvalue(),
+                        file_name=f"Dich_{up_file.name}.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+
+                    with st.expander("📄 Xem chi tiết văn bản quét được & bản dịch (Dễ copy)"):
+                        for idx, (orig_t, trans_t) in enumerate(zip(original_texts, translated_texts), 1):
+                            st.markdown(f"**Đoạn {idx}:** `{orig_t}` ➡️ **{trans_t}**")
+        else:
+            st.image(img, caption="Ảnh gốc", use_container_width=True)
+
+# TAB 3: DỊCH PHIM
+with tab3:
+    st.markdown("### 🎬 Xưởng Dịch Phim & Bóc Băng Tự Động")
+    col_srt, col_mp4 = st.columns(2)
+    with col_srt:
+        srt_file = st.file_uploader("1. Tải phụ đề (.srt) - NẾU CÓ:", type=['srt'], key="up_srt")
+    with col_mp4:
+        mp4_file = st.file_uploader("2. Tải video (.mp4):", type=['mp4'], key="up_mp4")
+
+    if srt_file or mp4_file:
+        st.markdown("---")
+        target_lang_srt = st.selectbox("3. Dịch sang ngôn ngữ:", lang_names, index=lang_names.index('Vietnamese'), key="tgt_srt")
+        t_code_srt = LANGUAGES[target_lang_srt]
+
+        if srt_file:
+            content = srt_file.read().decode('utf-8', errors='replace')
+            subs = pysrt.from_string(content)
+
+            if st.button("🚀 BẮT ĐẦU DỊCH TỪ PHỤ ĐỀ", use_container_width=True):
+                with st.spinner('Đang dịch toàn bộ (Tự động chống nghẽn)...'):
+                    progress_bar = st.progress(0)
+                    for i, sub in enumerate(subs):
+                        if sub.text.strip():
+                            sub.text = smart_translate(sub.text, 'auto', t_code_srt)
+                        progress_bar.progress((i + 1) / len(subs))
+
+                    vtt_out, srt_out = generate_subtitles(subs)
+                    st.success("🎉 Dịch hoàn tất!")
+
+                    st.markdown("#### 👁️ Bản xem trước:")
+                    preview_area = st.container()
+                    for i in range(min(3, len(subs))):
+                        preview_area.markdown(
+                            f"<div style='background:#1e1e1e; color:white; padding:15px; border-radius:10px; border-left: 5px solid #ffcc00; margin-bottom: 10px;'>"
+                            f"<strong style='font-size:18px; color:#ffcc00'>{subs[i].text}</strong></div>",
+                            unsafe_allow_html=True
+                        )
+
+                    if mp4_file is not None:
+                        _, vid_col, _ = st.columns([1, 3, 1])
+                        with vid_col:
+                            st.video(mp4_file, subtitles={f"{target_lang_srt}": vtt_out})
+                        with st.spinner("🔥 Đang ép phụ đề vào video..."):
+                            muxed_vid = hardsub_video(mp4_file.getvalue(), srt_out)
+                            if muxed_vid:
+                                st.download_button(
+                                    label="📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ",
+                                    data=muxed_vid,
+                                    file_name=f"Vietsub_{mp4_file.name}",
+                                    mime="video/mp4"
+                                )
+
+                    st.download_button(
+                        label="📥 Tải tệp phụ đề (.srt)",
+                        data=srt_out,
+                        file_name=f"Dich_{srt_file.name}",
+                        mime="text/plain"
+                    )
+
+        elif mp4_file and not srt_file:
+            st.info("💡 AI sẽ tự động bóc băng video!")
+            if st.button("🤖 BẮT ĐẦU DỊCH TỪ ÂM THANH VIDEO", use_container_width=True):
+                with st.spinner("Đang tải AI (Mô hình Base)..."):
+                    model = load_whisper_model()
+                with st.spinner("Đang nghe video..."):
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+                        tmp.write(mp4_file.read())
+                        tmp_path = tmp.name
+                    result = model.transcribe(tmp_path)
+
+                    def format_time(seconds):
+                        h, m, s = int(seconds // 3600), int((seconds % 3600) // 60), int(seconds % 60)
+                        ms = int((seconds - int(seconds)) * 1000)
+                        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+                    raw_srt = ""
+                    for i, seg in enumerate(result['segments']):
+                        raw_srt += f"{i+1}\n{format_time(seg['start'])} --> {format_time(seg['end'])}\n{seg['text'].strip()}\n\n"
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+
+                subs = pysrt.from_string(raw_srt)
+                progress_bar = st.progress(0)
+                
+                with st.spinner('Đang dịch văn bản...'):
+                    for i, sub in enumerate(subs):
+                        if sub.text.strip():
+                            sub.text = smart_translate(sub.text, 'auto', t_code_srt)
+                        progress_bar.progress((i + 1) / len(subs))
+
+                vtt_out, srt_out = generate_subtitles(subs)
+                st.success("🎉 Hoàn tất!")
+
+                _, vid_col_ai, _ = st.columns([1, 3, 1])
+                with vid_col_ai:
+                    st.video(mp4_file, subtitles={f"{target_lang_srt}": vtt_out})
+                with st.spinner("🔥 Đang ép chữ..."):
+                    muxed_vid = hardsub_video(mp4_file.getvalue(), srt_out)
+                    if muxed_vid:
+                        st.download_button(
+                            label="📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ",
+                            data=muxed_vid,
+                            file_name=f"AI_Vietsub_{mp4_file.name}",
+                            mime="video/mp4"
+                        )
+                st.download_button(
+                    label="📥 Tải tệp Vietsub (.srt)",
+                    data=srt_out,
+                    file_name="AI_Dich_Tudong.srt",
+                    mime="text/plain"
+                )
