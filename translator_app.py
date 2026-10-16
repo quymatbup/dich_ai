@@ -11,14 +11,11 @@ import os
 import subprocess
 import hashlib
 import re
-import html
-import json
 import urllib.request
-import urllib.parse
 from audio_recorder_streamlit import audio_recorder
-import translators as ts
+from deep_translator import GoogleTranslator
 
-# --- CẤU HÌNH GIAO DIỆN (Viết gọn 1 dòng chống lỗi U+00A0) ---
+# --- CẤU HÌNH GIAO DIỆN ---
 st.set_page_config(page_title='Dịch Thuật AI', layout='wide', page_icon="logo.ico")
 
 # --- TỐI ƯU CACHE CHO OCR & WHISPER ---
@@ -45,7 +42,7 @@ def load_whisper_model():
 
 # --- DANH SÁCH NGÔN NGỮ DỊCH ---
 LANGUAGES = {
-    'Vietnamese': 'vi', 'English': 'en', 'Chinese (Simplified)': 'zh-CHS', 'Chinese (Traditional)': 'zh-CHT',
+    'Vietnamese': 'vi', 'English': 'en', 'Chinese (Simplified)': 'zh-CN', 'Chinese (Traditional)': 'zh-TW',
     'Japanese': 'ja', 'Korean': 'ko', 'French': 'fr', 'German': 'de', 'Spanish': 'es', 'Russian': 'ru',
     'Thai': 'th', 'Lao': 'lo', 'Khmer': 'km', 'Indonesian': 'id', 'Malay': 'ms', 'Italian': 'it',
     'Portuguese': 'pt', 'Arabic': 'ar', 'Hindi': 'hi', 'Turkish': 'tr', 'Dutch': 'nl', 'Polish': 'pl'
@@ -96,7 +93,6 @@ def hardsub_video(mp4_bytes, srt_string):
         except Exception:
             pass
 
-# --- HÀM TỰ ĐỘNG GỌT DẤU TIẾNG VIỆT ---
 def remove_vn_accents(txt):
     patterns = {
         '[àáảãạăắằẳẵặâấầẩẫậ]': 'a', '[ÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬ]': 'A',
@@ -111,48 +107,24 @@ def remove_vn_accents(txt):
         txt = re.sub(regex, replace, txt)
     return txt
 
-# --- HÀM DỊCH CHUẨN XÁC (ƯU TIÊN GOOGLE GTX + KHỬ LỖI &#39;) ---
+# --- HÀM DỊCH MỚI (SỬ DỤNG DEEP-TRANSLATOR RẤT ỔN ĐỊNH) ---
 def smart_translate(text, src='auto', tgt='vi'):
     if not text or not text.strip():
         return text
-
-    clean_text = html.unescape(text.strip()).replace("’", "'").replace("‘", "'")
-
-    g_tgt = tgt
-    if tgt in ['zh-CN', 'zh-CHS', 'zh-Hans']:
-        g_tgt = 'zh-CN'
-    elif tgt in ['zh-TW', 'zh-CHT', 'zh-Hant']:
-        g_tgt = 'zh-TW'
-    g_src = src if src != 'auto' else 'auto'
-
+    
+    clean_text = text.strip()
     try:
-        url = (
-            f"https://translate.googleapis.com/translate_a/single?client=gtx"
-            f"&sl={g_src}&tl={g_tgt}&dt=t&q={urllib.parse.quote(clean_text)}"
-        )
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=8) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            translated = "".join([part[0] for part in data[0] if part[0]])
-            return html.unescape(translated)
-    except Exception:
-        pass
-
-    bing_tgt = 'zh-Hans' if tgt in ['zh-CN', 'zh-CHS'] else ('zh-Hant' if tgt in ['zh-TW', 'zh-CHT'] else tgt)
-    ali_tgt = 'zh' if tgt in ['zh-CN', 'zh-CHS', 'zh-Hans'] else ('zh-tw' if tgt in ['zh-TW', 'zh-CHT', 'zh-Hant'] else tgt)
-
-    try:
-        time.sleep(0.2)
-        res = ts.translate_text(clean_text, translator='bing', from_language=g_src, to_language=bing_tgt)
-        return html.unescape(res)
-    except Exception:
+        translated = GoogleTranslator(source='auto', target=tgt).translate(clean_text)
+        return translated
+    except Exception as e:
+        # Dự phòng bằng translators nếu deep-translator có vấn đề
         try:
-            res = ts.translate_text(clean_text, translator='alibaba', from_language=g_src, to_language=ali_tgt)
-            return html.unescape(res)
-        except Exception as e:
-            return f"{clean_text} (Lỗi Cloud: {str(e)})"
+            import translators as ts
+            time.sleep(0.2)
+            return ts.translate_text(clean_text, translator='bing', to_language=tgt)
+        except Exception:
+            return f"{clean_text} (Lỗi API Dịch: {str(e)})"
 
-# --- HÀM PHÁT ÂM ---
 def speak(text, lang_code):
     try:
         if lang_code == 'en' or lang_code.startswith('en'):
@@ -176,7 +148,7 @@ def speak(text, lang_code):
     except Exception:
         return None
 
-# --- CÁC HÀM HỖ TRỢ TỐI ƯU FONT, GỘP ĐOẠN & VẼ CHỮ TRÊN ẢNH (TAB 2) ---
+# --- CÁC HÀM HỖ TRỢ OCR & VẼ CHỮ TRÊN ẢNH ---
 @st.cache_resource
 def get_font_path():
     system_fonts = [
@@ -202,7 +174,8 @@ def get_font_path():
         pass
     return None
 
-def filter_and_group_ocr(raw_results, merge_para=True, min_prob=0.45):
+def filter_and_group_ocr(raw_results, merge_para=True, min_prob=0.35):
+    """Đã giảm độ khó bộ lọc để không làm mất dòng 'How are you?'"""
     filtered = []
     for item in raw_results:
         if len(item) != 3:
@@ -212,10 +185,11 @@ def filter_and_group_ocr(raw_results, merge_para=True, min_prob=0.45):
         if not txt or prob < min_prob:
             continue
 
+        # Lọc icon siêu nhỏ (chỉ 1-2 ký tự không phải chữ)
         alnum_count = sum(c.isalnum() for c in txt)
         if alnum_count == 0:
             continue
-        if len(txt) <= 4 and prob < 0.75 and not txt.isalpha():
+        if len(txt) <= 2 and prob < 0.6 and not txt.isalpha():
             continue
 
         xs = [int(p[0]) for p in bbox]
@@ -248,7 +222,7 @@ def filter_and_group_ocr(raw_results, merge_para=True, min_prob=0.45):
         same_left_margin = abs(box['x_min'] - prev['x_min']) < max(prev_line_h, curr_h) * 2.0
         similar_font_height = 0.45 <= (curr_h / max(1, prev_line_h)) <= 2.2
 
-        if v_gap < max(prev_line_h, curr_h) * 0.9 and v_gap > -curr_h * 0.5 and (h_overlap > 0 or same_left_margin) and similar_font_height:
+        if v_gap < max(prev_line_h, curr_h) * 1.5 and v_gap > -curr_h * 0.5 and (h_overlap > 0 or same_left_margin) and similar_font_height:
             prev['x_min'] = min(prev['x_min'], box['x_min'])
             prev['y_min'] = min(prev['y_min'], box['y_min'])
             prev['x_max'] = max(prev['x_max'], box['x_max'])
@@ -327,12 +301,11 @@ def get_box_colors(img_np, x_min, y_min, x_max, y_max):
 st.title("🛡️ App Dịch Thuật AI")
 tab1, tab2, tab3 = st.tabs(["📝 Dịch Văn Bản", "📸 Dịch hình ảnh", "🎬 Phụ Đề Phim & Tách Lời AI"])
 
-# TAB 1: DỊCH VĂN BẢN (GHI ÂM MICRO)
+# TAB 1: DỊCH VĂN BẢN
 with tab1:
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("### Nhập liệu")
-
         if "txt_in" not in st.session_state:
             st.session_state.txt_in = ""
 
@@ -378,10 +351,9 @@ with tab1:
             if text_in.strip():
                 with st.spinner('Đang dịch...'):
                     t_code = LANGUAGES[target_lang]
-                    s_code = 'auto' if source_lang == "Auto Detect" else LANGUAGES[source_lang]
-                    translated = smart_translate(text_in, s_code, t_code)
+                    translated = smart_translate(text_in, 'auto', t_code)
 
-                    if "(Lỗi Cloud" in translated:
+                    if "(Lỗi API Dịch" in translated:
                         st.error(translated)
                     else:
                         st.success(translated)
@@ -389,10 +361,9 @@ with tab1:
                         if audio_trans:
                             st.audio(audio_trans)
 
-# TAB 2: DỊCH HÌNH ẢNH THÔNG MINH
+# TAB 2: DỊCH HÌNH ẢNH
 with tab2:
     st.markdown("### 📸 Dịch hình ảnh thông minh")
-
     up_file = st.file_uploader("Chọn hình ảnh:", type=['jpg', 'png', 'jpeg'], key="up_img")
 
     if up_file:
@@ -424,7 +395,7 @@ with tab2:
                 t_code_img = LANGUAGES[target_lang_img]
 
                 raw_results = reader.readtext(img_np, paragraph=False)
-                boxes = filter_and_group_ocr(raw_results, merge_para=merge_para, min_prob=0.45)
+                boxes = filter_and_group_ocr(raw_results, merge_para=merge_para, min_prob=0.35)
 
                 if not boxes:
                     st.warning("⚠️ Không tìm thấy chữ nào rõ ràng trên bức ảnh này!")
@@ -491,7 +462,7 @@ with tab2:
         else:
             st.image(img, caption="Ảnh gốc", use_container_width=True)
 
-# TAB 3: DỊCH PHIM & TÁCH LỜI AI
+# TAB 3: DỊCH PHIM
 with tab3:
     st.markdown("### 🎬 Xưởng Dịch Phim & Bóc Băng Tự Động")
     col_srt, col_mp4 = st.columns(2)
