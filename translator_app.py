@@ -341,6 +341,11 @@ with tab3:
 
     if srt_f or mp4_f:
         st.markdown("---")
+        if mp4_f:
+            st.markdown("#### 🎬 Video gốc chưa dịch:")
+            _, orig_col, _ = st.columns([1, 2, 1])
+            with orig_col:
+                st.video(mp4_f)
         tgt_srt_l = st.selectbox("3. Dịch sang ngôn ngữ:", lang_names, index=lang_names.index('Vietnamese'))
         tc_srt = LANGUAGES[tgt_srt_l]
 
