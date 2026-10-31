@@ -353,7 +353,9 @@ with tab3:
             vtt_o, srt_o = generate_subtitles(subs)
             st.success("🎉 Dịch hoàn tất!")
             if mp4_f:
-                st.video(mp4_f, subtitles={tgt_srt_l: vtt_o})
+                _, vid_col, _ = st.columns([1, 2, 1])
+                with vid_col:
+                    st.video(mp4_f, subtitles={tgt_srt_l: vtt_o})
                 mux = hardsub_video(mp4_f.getvalue(), srt_o)
                 if mux: st.download_button("📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ", mux, f"Sub_{mp4_f.name}", "video/mp4")
             st.download_button("📥 Tải tệp phụ đề (.srt)", srt_o, f"Dich_{srt_f.name}", "text/plain")
@@ -379,8 +381,9 @@ with tab3:
                 bar.progress((i + 1) / len(subs))
             vtt_o, srt_o = generate_subtitles(subs)
             st.success("🎉 Hoàn tất!")
-            st.video(mp4_f, subtitles={tgt_srt_l: vtt_o})
+            _, vid_col, _ = st.columns([1, 2, 1])
+            with vid_col:
+                st.video(mp4_f, subtitles={tgt_srt_l: vtt_o})
             mux = hardsub_video(mp4_f.getvalue(), srt_o)
             if mux: st.download_button("📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ", mux, f"AI_{mp4_f.name}", "video/mp4")
             st.download_button("📥 Tải tệp Vietsub (.srt)", srt_o, "AI_Dich.srt", "text/plain")
-# === KẾT THÚC FILE CHUẨN 100% ===
