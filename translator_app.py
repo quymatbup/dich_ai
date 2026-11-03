@@ -257,7 +257,7 @@ with tab1:
         st.markdown("### Kết quả")
         target_lang = st.selectbox("Sang:", lang_names, index=lang_names.index('Vietnamese'), key="tgt_lang")
         if st.button("CHUYỂN NGỮ & PHÁT ÂM", key="btn_dich", type="primary") and text_in.strip():
-            with st.spinner('Đang dịch chuẩn ngữ cảnh...'):
+            with st.spinner('Đang dịch...'):
                 t_c = LANGUAGES[target_lang]
                 s_c = 'auto' if source_lang == "Auto Detect" else LANGUAGES[source_lang]
                 trans_out = smart_translate(text_in, s_c, t_c)
@@ -267,7 +267,7 @@ with tab1:
 
 # TAB 2: DỊCH HÌNH ẢNH
 with tab2:
-    st.markdown("### 📸 Dịch hình ảnh thông minh")
+    st.markdown("### 📸 Dịch hình ảnh")
     up_file = st.file_uploader("Chọn hình ảnh:", type=['jpg', 'png', 'jpeg'], key="up_img")
     if up_file:
         img = ImageOps.exif_transpose(Image.open(up_file).convert("RGB"))
@@ -332,9 +332,9 @@ with tab2:
         else:
             st.image(img, caption="Ảnh gốc", use_container_width=True)
 
-# TAB 3: DỊCH PHIM
+# TAB 3: DỊCH 
 with tab3:
-    st.markdown("### 🎬 Xưởng Dịch Phim & Bóc Băng Tự Động")
+    st.markdown("### 🎬 Thêm phụ đề video")
     cs, cm = st.columns(2)
     srt_f = cs.file_uploader("1. Tải phụ đề (.srt) - NẾU CÓ:", type=['srt'])
     mp4_f = cm.file_uploader("2. Tải video (.mp4):", type=['mp4'])
@@ -349,7 +349,7 @@ with tab3:
         tgt_srt_l = st.selectbox("3. Dịch sang ngôn ngữ:", lang_names, index=lang_names.index('Vietnamese'))
         tc_srt = LANGUAGES[tgt_srt_l]
 
-        if srt_f and st.button("🚀 BẮT ĐẦU DỊCH TỪ PHỤ ĐỀ", use_container_width=True):
+        if srt_f and st.button("🚀 BẮT ĐẦU DỊCH", use_container_width=True):
             subs = pysrt.from_string(srt_f.read().decode('utf-8', errors='replace'))
             bar = st.progress(0)
             for i, s in enumerate(subs):
@@ -362,11 +362,11 @@ with tab3:
                 with vid_col:
                     st.video(mp4_f, subtitles={tgt_srt_l: vtt_o})
                 mux = hardsub_video(mp4_f.getvalue(), srt_o)
-                if mux: st.download_button("📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ", mux, f"Sub_{mp4_f.name}", "video/mp4")
+                if mux: st.download_button("📽️ TẢI VIDEO ĐÃ CÓ PHỤ ĐỀ", mux, f"Sub_{mp4_f.name}", "video/mp4")
             st.download_button("📥 Tải tệp phụ đề (.srt)", srt_o, f"Dich_{srt_f.name}", "text/plain")
 
-        elif mp4_f and not srt_f and st.button("🤖 BẮT ĐẦU DỊCH TỪ ÂM THANH VIDEO", use_container_width=True):
-            with st.spinner("Đang nghe và tách lời video..."):
+        elif mp4_f and not srt_f and st.button("🤖 BẮT ĐẦU DỊCH", use_container_width=True):
+            with st.spinner("Đang dịch"):
                 model = load_whisper_model()
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
                     tmp.write(mp4_f.read())
@@ -390,5 +390,5 @@ with tab3:
             with vid_col:
                 st.video(mp4_f, subtitles={tgt_srt_l: vtt_o})
             mux = hardsub_video(mp4_f.getvalue(), srt_o)
-            if mux: st.download_button("📽️ TẢI VIDEO ĐÃ ÉP PHỤ ĐỀ", mux, f"AI_{mp4_f.name}", "video/mp4")
+            if mux: st.download_button("📽️ TẢI VIDEO ĐÃ CÓ PHỤ ĐỀ", mux, f"AI_{mp4_f.name}", "video/mp4")
             st.download_button("📥 Tải tệp Vietsub (.srt)", srt_o, "AI_Dich.srt", "text/plain")
