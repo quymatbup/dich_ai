@@ -13,7 +13,7 @@ import translators as ts
 st.set_page_config(page_title='Dịch Thuật AI', layout='wide', page_icon="logo.ico")
 
 OCR_LANG_GROUPS = {
-    "Tiếng Anh (Chuẩn nhất cho ảnh Tiếng Anh)": ['en'],
+    "Tiếng Anh": ['en'],
     "Tiếng Anh & Tiếng Việt": ['vi', 'en'],
     "Tiếng Trung (Giản thể) & Anh": ['ch_sim', 'en'],
     "Tiếng Trung (Phồn thể) & Anh": ['ch_tra', 'en'],
@@ -278,8 +278,7 @@ with tab2:
         with co1: ocr_lbl = st.selectbox("Ngôn ngữ chữ gốc:", list(OCR_LANG_GROUPS.keys()), index=0)
         with co2: tgt_img_l = st.selectbox("Dịch sang:", lang_names, index=lang_names.index('Vietnamese'))
         with co3:
-            st.write("")
-            merge_p = st.checkbox("Gộp đoạn (Mượt hơn)", value=True)
+            
 
         if st.button("🔍 QUÉT & DỊCH ĐÈ LÊN ẢNH", type="primary", use_container_width=True):
             with st.spinner("AI đang quét & dịch ảnh..."):
