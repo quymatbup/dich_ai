@@ -274,7 +274,7 @@ with tab2:
         if img.width > 1200 or img.height > 1200:
             img.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
 
-        co1, co2, co3 = st.columns(3)
+        co1, co2 = st.columns(2)
         with co1: ocr_lbl = st.selectbox("Ngôn ngữ chữ gốc:", list(OCR_LANG_GROUPS.keys()), index=0)
         with co2: tgt_img_l = st.selectbox("Dịch sang:", lang_names, index=lang_names.index('Vietnamese')) 
 
