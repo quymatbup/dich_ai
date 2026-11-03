@@ -276,9 +276,7 @@ with tab2:
 
         co1, co2, co3 = st.columns(3)
         with co1: ocr_lbl = st.selectbox("Ngôn ngữ chữ gốc:", list(OCR_LANG_GROUPS.keys()), index=0)
-        with co2: tgt_img_l = st.selectbox("Dịch sang:", lang_names, index=lang_names.index('Vietnamese'))
-        with co3:
-            
+        with co2: tgt_img_l = st.selectbox("Dịch sang:", lang_names, index=lang_names.index('Vietnamese')) 
 
         if st.button("🔍 QUÉT & DỊCH ĐÈ LÊN ẢNH", type="primary", use_container_width=True):
             with st.spinner("AI đang quét & dịch ảnh..."):
